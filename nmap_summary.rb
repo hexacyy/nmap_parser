@@ -6,22 +6,29 @@ require 'rexml/document'
 
 abort "Usage: #{$PROGRAM_NAME} <nmap.xml>" unless ARGV[0]
 
+# element.elements[path]&.attributes[name] is NOT nil-safe end-to-end:
+# &. only guards the `.attributes` call, not the `[name]` after it.
+# This helper guards the whole chain.
+def attr(element, path, name)
+  node = element.elements[path]
+  node && node.attributes[name]
+end
+
 doc = REXML::Document.new(File.read(ARGV[0]))
 
 doc.elements.each('nmaprun/host') do |host|
-  next unless host.elements['status']&.attributes['state'] == 'up'
+  next unless attr(host, 'status', 'state') == 'up'
 
-  ip = host.elements.each('address') { |a| break a if a.attributes['addrtype'] == 'ipv4' }
-  ip = (ip.is_a?(REXML::Element) ? ip : host.elements['address'])&.attributes['addr']
+  ipv4 = host.get_elements('address').find { |a| a.attributes['addrtype'] == 'ipv4' }
+  ip = (ipv4 || host.elements['address'])&.attributes&.[]('addr')
 
-  hostname = host.elements['hostnames/hostname']&.attributes['name']
-  os = host.elements['os/osmatch']&.attributes['name']
+  hostname = attr(host, 'hostnames/hostname', 'name')
+  os = attr(host, 'os/osmatch', 'name')
 
   ports = host.get_elements('ports/port').select do |p|
-    p.elements['state']&.attributes['state'] == 'open'
+    attr(p, 'state', 'state') == 'open'
   end.map do |p|
-    svc = p.elements['service']
-    desc = [svc&.attributes['name'], svc&.attributes['product'], svc&.attributes['version']].compact.join(' ')
+    desc = [attr(p, 'service', 'name'), attr(p, 'service', 'product'), attr(p, 'service', 'version')].compact.join(' ')
     "#{p.attributes['portid']}/#{p.attributes['protocol']}:#{desc}"
   end
 
