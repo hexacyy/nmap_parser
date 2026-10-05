@@ -1,5 +1,6 @@
 #!/usr/bin/env ruby
-# Parse an Nmap XML scan and print one summary line per live host.
+# Parse an Nmap XML scan and print one tab-separated line per open port:
+# ip  port  service  product  version  extrainfo
 # Usage: ruby nmap_summary.rb scan.xml
 
 require 'rexml/document'
@@ -22,16 +23,19 @@ doc.elements.each('nmaprun/host') do |host|
   ipv4 = host.get_elements('address').find { |a| a.attributes['addrtype'] == 'ipv4' }
   ip = (ipv4 || host.elements['address'])&.attributes&.[]('addr')
 
-  hostname = attr(host, 'hostnames/hostname', 'name')
-  os = attr(host, 'os/osmatch', 'name')
+  host.get_elements('ports/port').each do |p|
+    next unless attr(p, 'state', 'state') == 'open'
 
-  ports = host.get_elements('ports/port').select do |p|
-    attr(p, 'state', 'state') == 'open'
-  end.map do |p|
-    desc = [attr(p, 'service', 'name'), attr(p, 'service', 'product'), attr(p, 'service', 'version')].compact.join(' ')
-    "#{p.attributes['portid']}/#{p.attributes['protocol']}:#{desc}"
+    fields = [
+      ip,
+      p.attributes['portid'],
+      attr(p, 'service', 'name'),
+      attr(p, 'service', 'product'),
+      attr(p, 'service', 'version'),
+      attr(p, 'service', 'extrainfo')
+    ]
+    fields.pop while fields.last.nil?
+
+    puts fields.map(&:to_s).join("\t")
   end
-
-  fields = [ip, hostname, os, ports.join(', ')].compact.reject(&:empty?)
-  puts fields.join(' | ')
 end
